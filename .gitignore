@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Logs (contain execution history, not needed in repo)
+push_check.log
+launchd_stdout.log
+launchd_stderr.log
+
+# Screenshots that may contain tokens/secrets
+image.png
+
+# Local secrets/config — never commit real tokens
+*.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Claude local state
+.claude/
