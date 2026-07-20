@@ -3,9 +3,10 @@
 GitHub Daily Push Reminder
 ---------------------------
 Checks whether GITHUB_USERNAME has pushed a commit today (in TIMEZONE).
-If not, sends a Telegram reminder message. If yes, stays silent.
+Sends a Telegram update either way: a reminder if there is no push yet,
+or a confirmation if today's push is already done.
 
-Run this daily near your bedtime via cron/launchd (see README instructions).
+Run this twice daily (e.g. 8 AM and 8 PM) via cron/launchd (see README instructions).
 """
 
 import os
@@ -37,6 +38,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 REMINDER_MESSAGE = "🔴 Aaja push gareko chaina! Ek chotti commit garera streak jogaunu 💻"
+PUSHED_MESSAGE = "✅ Aaja push bhaisakyo! Streak safe chha 🔥"
 
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "push_check.log")
 
@@ -148,14 +150,15 @@ def main() -> int:
         return 1
 
     if pushed_today:
-        logger.info("Push found, no reminder needed")
-        return 0
-
-    logger.info("No push found for today. Attempting to send Telegram reminder.")
+        logger.info("Push found. Sending confirmation update.")
+        message = PUSHED_MESSAGE
+    else:
+        logger.info("No push found for today. Attempting to send Telegram reminder.")
+        message = REMINDER_MESSAGE
 
     try:
-        send_telegram_message(REMINDER_MESSAGE)
-        logger.info("Telegram reminder sent successfully.")
+        send_telegram_message(message)
+        logger.info("Telegram update sent successfully.")
     except requests.exceptions.ConnectionError:
         logger.error("No internet connection / could not reach Telegram API.")
         return 1
