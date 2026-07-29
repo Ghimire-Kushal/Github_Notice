@@ -70,6 +70,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def safe_error_message(exc: Exception) -> str:
+    """Return an exception string with secrets redacted."""
+    message = str(exc)
+    if TELEGRAM_BOT_TOKEN:
+        message = message.replace(TELEGRAM_BOT_TOKEN, "[REDACTED_TELEGRAM_TOKEN]")
+    return message
+
+
 def get_github_events_url(username: str) -> str:
     """Use authenticated endpoint if a token is present (includes private repo
     activity you have access to); otherwise use the public events endpoint."""
@@ -149,7 +157,7 @@ def send_telegram_message_with_retries(message: str) -> None:
                 "Telegram attempt %d/%d failed: %s. Retrying in %d seconds.",
                 attempt,
                 TELEGRAM_MAX_ATTEMPTS,
-                exc,
+                safe_error_message(exc),
                 TELEGRAM_RETRY_DELAY_SECONDS,
             )
             time.sleep(TELEGRAM_RETRY_DELAY_SECONDS)
@@ -239,13 +247,13 @@ def main() -> int:
         logger.info("Telegram update sent successfully.")
         return 0
     except requests.exceptions.ConnectionError as exc:
-        logger.error("Could not connect to Telegram API: %s", exc)
+        logger.error("Could not connect to Telegram API: %s", safe_error_message(exc))
         logger.info("Attempting ntfy mobile notification fallback.")
     except requests.exceptions.Timeout as exc:
-        logger.error("Telegram API request timed out: %s", exc)
+        logger.error("Telegram API request timed out: %s", safe_error_message(exc))
         logger.info("Attempting ntfy mobile notification fallback.")
     except (requests.exceptions.RequestException, RuntimeError) as exc:
-        logger.error("Telegram API error: %s", exc)
+        logger.error("Telegram API error: %s", safe_error_message(exc))
         logger.info("Attempting ntfy mobile notification fallback.")
 
     try:
