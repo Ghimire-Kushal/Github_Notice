@@ -12,6 +12,8 @@ Run this twice daily (e.g. 8 AM and 8 PM) via cron/launchd (see README instructi
 import os
 import sys
 import logging
+import subprocess
+import time
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -37,6 +39,11 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # optional
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# ntfy mobile push fallback. Install the ntfy app on your phone and subscribe
+# to this private topic name.
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
+NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
+
 REMINDER_MESSAGE = "🔴 Aaja push gareko chaina! Ek chotti commit garera streak jogaunu 💻"
 PUSHED_MESSAGE = "✅ Aaja push bhaisakyo! Streak safe chha 🔥"
 
@@ -44,6 +51,10 @@ LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "push_check.
 
 GITHUB_API_TIMEOUT = 10  # seconds
 TELEGRAM_API_TIMEOUT = 10  # seconds
+TELEGRAM_MAX_ATTEMPTS = 3
+TELEGRAM_RETRY_DELAY_SECONDS = 5
+NTFY_API_TIMEOUT = 10  # seconds
+MACOS_NOTIFICATION_TITLE = "GitHub Reminder"
 
 # ============================================================
 # LOGGING SETUP
@@ -121,6 +132,73 @@ def send_telegram_message(message: str) -> None:
     response.raise_for_status()
 
 
+def send_telegram_message_with_retries(message: str) -> None:
+    """Send a Telegram message, retrying temporary network failures."""
+    last_error = None
+
+    for attempt in range(1, TELEGRAM_MAX_ATTEMPTS + 1):
+        try:
+            send_telegram_message(message)
+            return
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            if attempt == TELEGRAM_MAX_ATTEMPTS:
+                break
+
+            logger.warning(
+                "Telegram attempt %d/%d failed: %s. Retrying in %d seconds.",
+                attempt,
+                TELEGRAM_MAX_ATTEMPTS,
+                exc,
+                TELEGRAM_RETRY_DELAY_SECONDS,
+            )
+            time.sleep(TELEGRAM_RETRY_DELAY_SECONDS)
+
+    raise last_error
+
+
+def applescript_string(value: str) -> str:
+    """Return a safely quoted AppleScript string literal."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def send_macos_notification(message: str) -> None:
+    """Send a local macOS notification."""
+    subprocess.run(
+        [
+            "osascript",
+            "-e",
+            (
+                f"display notification {applescript_string(message)} "
+                f"with title {applescript_string(MACOS_NOTIFICATION_TITLE)}"
+            ),
+        ],
+        check=True,
+        timeout=10,
+    )
+
+
+def send_ntfy_notification(message: str) -> None:
+    """Send a mobile push notification through ntfy."""
+    if not NTFY_TOPIC:
+        raise RuntimeError("NTFY_TOPIC environment variable is not set.")
+
+    url = f"{NTFY_SERVER}/{NTFY_TOPIC}"
+    headers = {
+        "Title": "GitHub Reminder",
+        "Tags": "github",
+        "Priority": "high",
+    }
+
+    response = requests.post(
+        url,
+        data=message.encode("utf-8"),
+        headers=headers,
+        timeout=NTFY_API_TIMEOUT,
+    )
+    response.raise_for_status()
+
+
 def main() -> int:
     logger.info(
         "Starting push check for '%s' (bedtime reference: %02d:00 %s)",
@@ -157,16 +235,38 @@ def main() -> int:
         message = REMINDER_MESSAGE
 
     try:
-        send_telegram_message(message)
+        send_telegram_message_with_retries(message)
         logger.info("Telegram update sent successfully.")
-    except requests.exceptions.ConnectionError:
-        logger.error("No internet connection / could not reach Telegram API.")
-        return 1
-    except requests.exceptions.Timeout:
-        logger.error("Telegram API request timed out.")
-        return 1
+        return 0
+    except requests.exceptions.ConnectionError as exc:
+        logger.error("Could not connect to Telegram API: %s", exc)
+        logger.info("Attempting ntfy mobile notification fallback.")
+    except requests.exceptions.Timeout as exc:
+        logger.error("Telegram API request timed out: %s", exc)
+        logger.info("Attempting ntfy mobile notification fallback.")
     except (requests.exceptions.RequestException, RuntimeError) as exc:
         logger.error("Telegram API error: %s", exc)
+        logger.info("Attempting ntfy mobile notification fallback.")
+
+    try:
+        send_ntfy_notification(message)
+        logger.info("ntfy mobile notification sent successfully.")
+        return 0
+    except requests.exceptions.ConnectionError as exc:
+        logger.error("Could not connect to ntfy API: %s", exc)
+        logger.info("Attempting macOS notification fallback.")
+    except requests.exceptions.Timeout as exc:
+        logger.error("ntfy API request timed out: %s", exc)
+        logger.info("Attempting macOS notification fallback.")
+    except (requests.exceptions.RequestException, RuntimeError) as exc:
+        logger.error("ntfy API error: %s", exc)
+        logger.info("Attempting macOS notification fallback.")
+
+    try:
+        send_macos_notification(message)
+        logger.info("macOS notification sent successfully.")
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.error("macOS notification fallback failed: %s", exc)
         return 1
 
     return 0

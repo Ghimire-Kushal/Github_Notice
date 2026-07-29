@@ -22,8 +22,10 @@ Never hardcode secrets in the script. Add them to your shell profile
 
 ```bash
 # ~/.zshrc (or ~/.bash_profile)
-export TELEGRAM_BOT_TOKEN="your-bot-token-here![alt text](image.png)"
+export TELEGRAM_BOT_TOKEN="your-bot-token-here"
 export TELEGRAM_CHAT_ID="your-chat-id-here"
+# Mobile push fallback through the ntfy app:
+export NTFY_TOPIC="your-private-random-topic"
 # Optional, only needed if you want private-repo push detection:
 # export GITHUB_TOKEN="your-personal-access-token"
 ```
@@ -48,6 +50,38 @@ python3 /Users/Project/GithubNotice/push_reminder.py
 ```
 
 Check `push_check.log` in the same folder for output.
+
+If the log says Telegram could not be reached, test the Telegram API from
+the same machine:
+
+```bash
+curl -I --max-time 15 https://api.telegram.org
+```
+
+If this times out, the problem is network access to Telegram, not the Python
+script. Check VPN/proxy/firewall/DNS settings, or try from another network.
+
+## 4b. Mobile fallback with ntfy
+
+If Telegram is blocked on your network, use ntfy for phone notifications:
+
+1. Install the **ntfy** app on your phone.
+2. Pick a private topic name, for example `kushal-github-reminder-8f3a2c91`.
+3. Subscribe to that exact topic in the ntfy app.
+4. Set the same topic on your Mac:
+
+```bash
+export NTFY_TOPIC="kushal-github-reminder-8f3a2c91"
+```
+
+Test it:
+
+```bash
+curl -d "GitHub reminder test" https://ntfy.sh/kushal-github-reminder-8f3a2c91
+```
+
+Use a topic that is hard to guess. Anyone who knows the topic name can publish
+to it.
 
 ## 5. Schedule with launchd (macOS) — runs daily at 10:30 PM Nepal time
 
@@ -81,6 +115,8 @@ Create `~/Library/LaunchAgents/com.kushal.pushreminder.plist`:
         <string>your-bot-token-here</string>
         <key>TELEGRAM_CHAT_ID</key>
         <string>your-chat-id-here</string>
+        <key>NTFY_TOPIC</key>
+        <string>your-private-random-topic</string>
     </dict>
 
     <key>StartCalendarInterval</key>
