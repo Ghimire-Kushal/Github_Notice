@@ -102,6 +102,7 @@ def fetch_github_events(username: str) -> list:
         )
     response.raise_for_status()
     return response.json()
+# ss
 
 
 def has_pushed_today(events: list, today_local: datetime.date) -> bool:
